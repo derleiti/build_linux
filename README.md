@@ -24,6 +24,23 @@ python3 -m venv .venv
 ./build_ailinux_kernel.sh
 ```
 
+## Linux-Binary bauen
+
+Das Buildskript erstellt mit PyInstaller eine eigenständige GUI-Binary. Python-
+Pakete und PyInstaller werden dabei isoliert unter `.build-venv/` installiert:
+
+```bash
+./build_linux_binary.sh
+```
+
+Das Ergebnis liegt unter `dist/ailinux-kernel-builder`. Die Arbeitsdaten und
+gebauten Debian-Pakete werden beim Start neben der Binary in
+`.ailinux-kernel-work/` beziehungsweise `output/` abgelegt.
+
+Die Binary gilt für die Architektur, auf der sie gebaut wurde. Für möglichst
+breite Kompatibilität sollte sie auf der ältesten unterstützten Linux-
+Distribution gebaut werden.
+
 Das vorhandene `linux-7.1.3.tar.xz` wird beim ersten Start automatisch
 vorausgewählt. GnuPG lädt die offiziellen Maintainer-Schlüssel über das
 kernel.org Web Key Directory in einen isolierten Schlüsselring unter

@@ -1,8 +1,12 @@
 .ailinux-kernel-work/
+.build-venv/
 .venv/
+build/
+dist/
 output/
 __pycache__/
 *.py[cod]
+*.spec
 linux-*.tar
 linux-*.tar.*
 linux-*.zip
