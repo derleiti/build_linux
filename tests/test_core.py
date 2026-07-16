@@ -9,11 +9,13 @@ from pathlib import Path
 from ailinux_kernel_builder.core import (
     BuilderError,
     SourceInfo,
+    VERIFY_LOCAL,
     VerificationResult,
     config_commands,
     extract_source,
     installable_kernel_debs,
     source_info,
+    verify_kernel_org_source,
 )
 
 
@@ -35,6 +37,22 @@ class CoreTests(unittest.TestCase):
             archive.touch()
             with self.assertRaises(BuilderError):
                 source_info(archive)
+
+    def test_local_mode_records_hash_without_online_verification(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive = root / "linux-7.1.3.tar.xz"
+            archive.write_bytes(b"local release candidate")
+            result = verify_kernel_org_source(
+                archive,
+                root / "cache",
+                mode=VERIFY_LOCAL,
+            )
+            self.assertIsNone(result.signer_fingerprint)
+            self.assertEqual(
+                result.sha256,
+                "a6f731703b47bfff599a7bbfcd98b70de348bef5ade8c40c252beb310f0d395d",
+            )
 
     def test_profile_uses_madvise_and_bbr(self) -> None:
         flattened = " ".join(value or "" for _, value in config_commands(True))

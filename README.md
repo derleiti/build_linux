@@ -16,10 +16,18 @@ Darum werden umbenannte, veränderte oder neu als ZIP gepackte Quellen bewusst
 abgelehnt. Unterstützt werden originale `linux-X.Y.Z.tar`, `.tar.xz`,
 `.tar.gz`, `.tar.bz2` und mit Python 3.14 auch `.tar.zst`.
 
-Für offizielle kernel.org-Archive kann die OpenPGP-Prüfung in der GUI bewusst
-deaktiviert werden. Die SHA-256-Prüfung gegen `sha256sums.asc` bleibt zwingend
-aktiv. Umbenannte oder lokal veränderte Archive werden auch in diesem Modus
-nicht akzeptiert.
+Beim Import stehen drei Prüfmodi zur Wahl:
+
+1. **Vollständig:** SHA-256 gegen kernel.org plus OpenPGP-Release-Signatur.
+2. **Ohne Signatur:** nur SHA-256 gegen kernel.org, etwa wenn für einen
+   Release Candidate keine passende TAR-Signatur verfügbar ist.
+3. **Lokales Archiv:** keine Online-Gegenprüfung; der lokale SHA-256-Wert wird
+   lediglich dokumentiert. Dieser Modus verlangt eine ausdrückliche Warnbestätigung.
+
+Der Dateiname und die Archivstruktur müssen in allen Modi weiterhin dem
+kernel.org-Schema `linux-X.Y.Z[-rcN]` entsprechen. Self-Signing bestätigt nur
+die daraus gebauten Module und ist kein nachträglicher Herkunftsnachweis für
+ungeprüfte Quellen.
 
 Optional erzeugt die App unter `.ailinux-kernel-work/signing/` einen
 persistenten lokalen RSA-4096-Schlüssel und signiert damit alle gebauten

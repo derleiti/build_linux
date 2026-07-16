@@ -8,6 +8,7 @@ from PyQt6.QtGui import QDesktopServices, QFont
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QComboBox,
     QFileDialog,
     QFormLayout,
     QFrame,
@@ -23,7 +24,14 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from .core import BuildOptions, missing_packages, source_info
+from .core import (
+    BuildOptions,
+    VERIFY_CHECKSUM,
+    VERIFY_FULL,
+    VERIFY_LOCAL,
+    missing_packages,
+    source_info,
+)
 from .worker import DependencyInstallWorker, KernelBuildWorker
 
 
@@ -76,8 +84,8 @@ class MainWindow(QMainWindow):
         source_row.addWidget(browse)
         source_layout.addLayout(source_row)
         note = QLabel(
-            "Standard: offizieller SHA-256-Eintrag plus Entwickler-Signatur. "
-            "Die Signaturprüfung kann bewusst abgeschaltet werden; die kernel.org-Prüfsumme bleibt Pflicht."
+            "Der Prüfmodus ist frei wählbar: vollständig, nur gegen kernel.org-SHA-256 "
+            "oder bewusst ohne Online-Gegenprüfung für lokale/unsignierte Archive."
         )
         note.setObjectName("muted")
         note.setWordWrap(True)
@@ -94,15 +102,26 @@ class MainWindow(QMainWindow):
         self.performance.setChecked(True)
         self.native = QCheckBox("CPU-Tuning für diesen Rechner (-mtune=native)")
         self.clean = QCheckBox("Arbeitsordner für diese Version neu erstellen")
-        self.verify_signature = QCheckBox("OpenPGP-Release-Signatur von kernel.org prüfen")
-        self.verify_signature.setChecked(True)
+        self.verification_mode = QComboBox()
+        self.verification_mode.addItem(
+            "Vollständig: kernel.org-SHA-256 + OpenPGP-Signatur",
+            VERIFY_FULL,
+        )
+        self.verification_mode.addItem(
+            "Ohne Signatur: nur kernel.org-SHA-256",
+            VERIFY_CHECKSUM,
+        )
+        self.verification_mode.addItem(
+            "Lokales Archiv: keine Online-Gegenprüfung",
+            VERIFY_LOCAL,
+        )
         self.self_sign = QCheckBox("Kernelmodule mit persistentem lokalem Self-Signed-Key signieren")
         self.install = QCheckBox("Kernel und Header nach dem Build installieren")
         form.addRow("Parallele Jobs", self.jobs)
         form.addRow("Gaming", self.performance)
         form.addRow("CPU", self.native)
         form.addRow("Neuaufbau", self.clean)
-        form.addRow("Quellprüfung", self.verify_signature)
+        form.addRow("Quellprüfung", self.verification_mode)
         form.addRow("Secure Boot", self.self_sign)
         form.addRow("Installation", self.install)
         layout.addWidget(options_box)
@@ -200,12 +219,25 @@ class MainWindow(QMainWindow):
         archive = self._archive()
         if archive is None:
             return
-        if not self.verify_signature.isChecked():
+        verification_mode = str(self.verification_mode.currentData())
+        if verification_mode == VERIFY_CHECKSUM:
             answer = QMessageBox.warning(
                 self,
-                "Signaturprüfung deaktiviert",
+                "Build ohne Release-Signatur",
                 "Die OpenPGP-Release-Signatur wird nicht geprüft. Das Archiv muss weiterhin exakt "
                 "in der offiziellen kernel.org-SHA-256-Liste stehen.\n\nFortfahren?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+        elif verification_mode == VERIFY_LOCAL:
+            answer = QMessageBox.warning(
+                self,
+                "Ungeprüftes lokales Quellarchiv",
+                "Es erfolgt keine Online-Gegenprüfung. Der SHA-256-Wert wird nur protokolliert; "
+                "Herkunft und Echtheit des Archivs bleiben unbestätigt.\n\n"
+                "Nur fortfahren, wenn du der Quelle selbst vertraust.",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
@@ -236,7 +268,7 @@ class MainWindow(QMainWindow):
             performance_governor=self.performance.isChecked(),
             native_tuning=self.native.isChecked(),
             clean_workspace=self.clean.isChecked(),
-            verify_signature=self.verify_signature.isChecked(),
+            verification_mode=verification_mode,
             self_sign_modules=self.self_sign.isChecked(),
             install_after_build=(not verify_only and self.install.isChecked()),
         )

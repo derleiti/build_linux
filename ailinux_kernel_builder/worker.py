@@ -13,6 +13,7 @@ from PyQt6.QtCore import QThread, pyqtSignal
 from .core import (
     BuildOptions,
     BuilderError,
+    VERIFY_CHECKSUM,
     config_commands,
     copy_debs,
     ensure_module_signing_key,
@@ -151,7 +152,7 @@ class KernelBuildWorker(QThread):
                 cache,
                 self._log,
                 self.progress.emit,
-                verify_signature=self.options.verify_signature,
+                mode=self.options.verification_mode,
             )
             self.progress.emit(100)
             self._check_cancelled()
@@ -162,7 +163,11 @@ class KernelBuildWorker(QThread):
                         (
                             f"Signatur: {verification.signer_fingerprint}"
                             if verification.signer_fingerprint
-                            else "Signatur: bewusst übersprungen (nur kernel.org-SHA-256)"
+                            else (
+                                "Prüfung: kernel.org-SHA-256, keine OpenPGP-Signatur"
+                                if self.options.verification_mode == VERIFY_CHECKSUM
+                                else "Prüfung: keine Online-Gegenprüfung; lokaler SHA-256 dokumentiert"
+                            )
                         ),
                     ]
                 )

@@ -19,6 +19,11 @@ from typing import BinaryIO, Callable, Iterable
 
 LogFn = Callable[[str], None]
 
+VERIFY_FULL = "full"
+VERIFY_CHECKSUM = "checksum"
+VERIFY_LOCAL = "local"
+VERIFICATION_MODES = (VERIFY_FULL, VERIFY_CHECKSUM, VERIFY_LOCAL)
+
 ARCHIVE_RE = re.compile(
     r"^linux-(?P<version>\d+\.\d+(?:\.\d+)?(?:-rc\d+)?)"
     r"(?P<suffix>\.tar(?:\.(?:xz|gz|bz2|zst))?|\.zip)$"
@@ -87,7 +92,7 @@ class BuildOptions:
     performance_governor: bool = True
     native_tuning: bool = False
     clean_workspace: bool = False
-    verify_signature: bool = True
+    verification_mode: str = VERIFY_FULL
     self_sign_modules: bool = False
     install_after_build: bool = False
 
@@ -97,7 +102,7 @@ def source_info(archive: Path) -> SourceInfo:
     match = ARCHIVE_RE.fullmatch(archive.name)
     if not match:
         raise BuilderError(
-            "Der Dateiname muss einem unveränderten kernel.org-Release entsprechen, "
+            "Der Dateiname muss dem kernel.org-Versionsschema entsprechen, "
             "z. B. linux-7.1.3.tar.xz."
         )
     if not archive.is_file():
@@ -278,16 +283,26 @@ def verify_kernel_org_source(
     cache_dir: Path,
     log: LogFn = lambda _message: None,
     progress: Callable[[int], None] | None = None,
-    verify_signature: bool = True,
+    mode: str = VERIFY_FULL,
 ) -> VerificationResult:
+    if mode not in VERIFICATION_MODES:
+        raise BuilderError(f"Unbekannter Prüfmodus: {mode}")
     source = source_info(archive)
     cache_dir.mkdir(parents=True, exist_ok=True)
     checksums = cache_dir / f"sha256sums-v{source.version}.asc"
     signature = cache_dir / f"linux-{source.version}.tar.sign"
-    _download(source.checksums_url, checksums, log)
-    expected = _manifest_hash(checksums, source.archive.name)
     log("Berechne SHA-256 der Quelldatei …")
     actual = sha256_file(source.archive, progress)
+
+    if mode == VERIFY_LOCAL:
+        log(
+            "WARNUNG: Online-Gegenprüfung deaktiviert. "
+            "Der lokale SHA-256 wird nur dokumentiert; Herkunft und Echtheit sind nicht bestätigt."
+        )
+        return VerificationResult(source=source, sha256=actual, signer_fingerprint=None)
+
+    _download(source.checksums_url, checksums, log)
+    expected = _manifest_hash(checksums, source.archive.name)
     if actual != expected:
         raise BuilderError(
             "SHA-256 stimmt nicht mit kernel.org überein. Das Archiv ist beschädigt, "
@@ -296,7 +311,7 @@ def verify_kernel_org_source(
     log(f"SHA-256 stimmt mit kernel.org überein: {actual}")
 
     fingerprint: str | None = None
-    if verify_signature:
+    if mode == VERIFY_FULL:
         _download(source.signature_url, signature, log)
         log("Prüfe die Entwickler-Signatur des unkomprimierten TARs …")
         fingerprint = _verify_tar_signature(source, signature, cache_dir / "gnupg", log)
