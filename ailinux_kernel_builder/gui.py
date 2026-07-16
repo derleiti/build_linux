@@ -76,8 +76,8 @@ class MainWindow(QMainWindow):
         source_row.addWidget(browse)
         source_layout.addLayout(source_row)
         note = QLabel(
-            "Pflichtprüfung: offizieller SHA-256-Eintrag plus Entwickler-Signatur. "
-            "Umbenannte oder neu gepackte Archive werden nicht gebaut."
+            "Standard: offizieller SHA-256-Eintrag plus Entwickler-Signatur. "
+            "Die Signaturprüfung kann bewusst abgeschaltet werden; die kernel.org-Prüfsumme bleibt Pflicht."
         )
         note.setObjectName("muted")
         note.setWordWrap(True)
@@ -94,10 +94,17 @@ class MainWindow(QMainWindow):
         self.performance.setChecked(True)
         self.native = QCheckBox("CPU-Tuning für diesen Rechner (-mtune=native)")
         self.clean = QCheckBox("Arbeitsordner für diese Version neu erstellen")
+        self.verify_signature = QCheckBox("OpenPGP-Release-Signatur von kernel.org prüfen")
+        self.verify_signature.setChecked(True)
+        self.self_sign = QCheckBox("Kernelmodule mit persistentem lokalem Self-Signed-Key signieren")
+        self.install = QCheckBox("Kernel und Header nach dem Build installieren")
         form.addRow("Parallele Jobs", self.jobs)
         form.addRow("Gaming", self.performance)
         form.addRow("CPU", self.native)
         form.addRow("Neuaufbau", self.clean)
+        form.addRow("Quellprüfung", self.verify_signature)
+        form.addRow("Secure Boot", self.self_sign)
+        form.addRow("Installation", self.install)
         layout.addWidget(options_box)
 
         dep_row = QHBoxLayout()
@@ -193,6 +200,17 @@ class MainWindow(QMainWindow):
         archive = self._archive()
         if archive is None:
             return
+        if not self.verify_signature.isChecked():
+            answer = QMessageBox.warning(
+                self,
+                "Signaturprüfung deaktiviert",
+                "Die OpenPGP-Release-Signatur wird nicht geprüft. Das Archiv muss weiterhin exakt "
+                "in der offiziellen kernel.org-SHA-256-Liste stehen.\n\nFortfahren?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
         if not verify_only and self.clean.isChecked():
             answer = QMessageBox.question(
                 self,
@@ -201,11 +219,26 @@ class MainWindow(QMainWindow):
             )
             if answer != QMessageBox.StandardButton.Yes:
                 return
+        if not verify_only and self.install.isChecked():
+            answer = QMessageBox.warning(
+                self,
+                "Kernel nach Build installieren",
+                "Nach erfolgreichem Build werden Kernel-Image und Header über die "
+                "System-Authentifizierung installiert. Der bisherige Kernel bleibt als Rückfalloption erhalten.\n\n"
+                "Fortfahren?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
         options = BuildOptions(
             jobs=self.jobs.value(),
             performance_governor=self.performance.isChecked(),
             native_tuning=self.native.isChecked(),
             clean_workspace=self.clean.isChecked(),
+            verify_signature=self.verify_signature.isChecked(),
+            self_sign_modules=self.self_sign.isChecked(),
+            install_after_build=(not verify_only and self.install.isChecked()),
         )
         self.log.clear()
         self.progress.setValue(0)

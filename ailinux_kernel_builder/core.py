@@ -55,6 +55,7 @@ REQUIRED_PACKAGES = (
     "debhelper",
     "cpio",
     "kmod",
+    "openssl",
 )
 
 
@@ -77,7 +78,7 @@ class SourceInfo:
 class VerificationResult:
     source: SourceInfo
     sha256: str
-    signer_fingerprint: str
+    signer_fingerprint: str | None
 
 
 @dataclass(frozen=True)
@@ -86,6 +87,9 @@ class BuildOptions:
     performance_governor: bool = True
     native_tuning: bool = False
     clean_workspace: bool = False
+    verify_signature: bool = True
+    self_sign_modules: bool = False
+    install_after_build: bool = False
 
 
 def source_info(archive: Path) -> SourceInfo:
@@ -274,6 +278,7 @@ def verify_kernel_org_source(
     cache_dir: Path,
     log: LogFn = lambda _message: None,
     progress: Callable[[int], None] | None = None,
+    verify_signature: bool = True,
 ) -> VerificationResult:
     source = source_info(archive)
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -290,11 +295,91 @@ def verify_kernel_org_source(
         )
     log(f"SHA-256 stimmt mit kernel.org überein: {actual}")
 
-    _download(source.signature_url, signature, log)
-    log("Prüfe die Entwickler-Signatur des unkomprimierten TARs …")
-    fingerprint = _verify_tar_signature(source, signature, cache_dir / "gnupg", log)
-    log(f"Kernel-Signatur gültig: {fingerprint}")
+    fingerprint: str | None = None
+    if verify_signature:
+        _download(source.signature_url, signature, log)
+        log("Prüfe die Entwickler-Signatur des unkomprimierten TARs …")
+        fingerprint = _verify_tar_signature(source, signature, cache_dir / "gnupg", log)
+        log(f"Kernel-Signatur gültig: {fingerprint}")
+    else:
+        log(
+            "WARNUNG: OpenPGP-Signaturprüfung deaktiviert. "
+            "Die Quelle wurde nur gegen die von kernel.org gelistete SHA-256-Prüfsumme geprüft."
+        )
     return VerificationResult(source=source, sha256=actual, signer_fingerprint=fingerprint)
+
+
+def ensure_module_signing_key(key_dir: Path, log: LogFn) -> tuple[Path, Path]:
+    """Create one persistent local module-signing key and its MOK certificate."""
+    openssl = shutil.which("openssl")
+    if not openssl:
+        raise BuilderError("OpenSSL fehlt. Installiere das Debian-Paket 'openssl'.")
+    key_dir.mkdir(parents=True, exist_ok=True)
+    key_dir.chmod(0o700)
+    private_key = key_dir / "ailinux-module-signing-key.pem"
+    certificate = key_dir / "ailinux-module-signing-cert.x509"
+    mok_certificate = key_dir / "ailinux-module-signing-cert.der"
+
+    if private_key.is_file() and certificate.is_file() and mok_certificate.is_file():
+        private_key.chmod(0o600)
+        log(f"Verwende vorhandenen lokalen Signaturschlüssel: {private_key}")
+        return private_key, mok_certificate
+
+    for path in (private_key, certificate, mok_certificate):
+        path.unlink(missing_ok=True)
+    log("Erzeuge einmaligen, lokal persistenten RSA-4096-Schlüssel für Kernelmodule …")
+    result = _run(
+        [
+            openssl,
+            "req",
+            "-new",
+            "-x509",
+            "-newkey",
+            "rsa:4096",
+            "-sha256",
+            "-nodes",
+            "-days",
+            "3650",
+            "-subj",
+            "/CN=AILinux Local Kernel Module Signing/",
+            "-keyout",
+            str(private_key),
+            "-out",
+            str(certificate),
+        ]
+    )
+    if result.returncode:
+        raise BuilderError(f"Signaturschlüssel konnte nicht erzeugt werden:\n{result.stdout[-1500:]}")
+    private_key.chmod(0o600)
+    result = _run(
+        [
+            openssl,
+            "x509",
+            "-in",
+            str(certificate),
+            "-outform",
+            "DER",
+            "-out",
+            str(mok_certificate),
+        ]
+    )
+    if result.returncode:
+        raise BuilderError(f"MOK-Zertifikat konnte nicht erzeugt werden:\n{result.stdout[-1500:]}")
+    certificate.chmod(0o644)
+    mok_certificate.chmod(0o644)
+    return private_key, mok_certificate
+
+
+def installable_kernel_debs(debs: Iterable[Path]) -> list[Path]:
+    """Select runtime image and matching headers, excluding debug/libc packages."""
+    selected: list[Path] = []
+    for path in debs:
+        name = path.name
+        if name.startswith("linux-headers-"):
+            selected.append(path)
+        elif name.startswith("linux-image-") and "-dbg_" not in name:
+            selected.append(path)
+    return sorted(selected)
 
 
 def _safe_posix_path(name: str) -> PurePosixPath:

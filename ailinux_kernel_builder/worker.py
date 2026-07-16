@@ -15,7 +15,9 @@ from .core import (
     BuilderError,
     config_commands,
     copy_debs,
+    ensure_module_signing_key,
     extract_source,
+    installable_kernel_debs,
     make_environment,
     missing_packages,
     remove_workspace_path,
@@ -113,6 +115,28 @@ class KernelBuildWorker(QThread):
                 args = [str(config_tool), "--file", str(config_file), operation, str(value)]
             self._run_command(args, source_dir, optional=True)
 
+    def _apply_module_signing(self, source_dir: Path, build_dir: Path, private_key: Path) -> None:
+        config_tool = source_dir / "scripts/config"
+        config_file = build_dir / ".config"
+        commands = (
+            ("--enable", "CONFIG_MODULE_SIG"),
+            ("--enable", "CONFIG_MODULE_SIG_ALL"),
+            ("--enable", "CONFIG_MODULE_SIG_SHA256"),
+            ("--disable", "CONFIG_MODULE_SIG_SHA1"),
+            ("--disable", "CONFIG_MODULE_SIG_SHA224"),
+            ("--disable", "CONFIG_MODULE_SIG_SHA384"),
+            ("--disable", "CONFIG_MODULE_SIG_SHA512"),
+            ("--set-str", f"CONFIG_MODULE_SIG_KEY={private_key}"),
+            ("--set-str", "CONFIG_SYSTEM_TRUSTED_KEYS="),
+            ("--set-str", "CONFIG_SYSTEM_REVOCATION_KEYS="),
+        )
+        for operation, value in commands:
+            symbol, setting = value.split("=", 1) if "=" in value else (value, "")
+            args = [str(config_tool), "--file", str(config_file), operation, symbol]
+            if operation == "--set-str":
+                args.append(setting)
+            self._run_command(args, source_dir)
+
     def run(self) -> None:
         try:
             if os.geteuid() == 0:
@@ -127,6 +151,7 @@ class KernelBuildWorker(QThread):
                 cache,
                 self._log,
                 self.progress.emit,
+                verify_signature=self.options.verify_signature,
             )
             self.progress.emit(100)
             self._check_cancelled()
@@ -134,7 +159,11 @@ class KernelBuildWorker(QThread):
                 self.success.emit(
                     [
                         f"SHA-256: {verification.sha256}",
-                        f"Signatur: {verification.signer_fingerprint}",
+                        (
+                            f"Signatur: {verification.signer_fingerprint}"
+                            if verification.signer_fingerprint
+                            else "Signatur: bewusst übersprungen (nur kernel.org-SHA-256)"
+                        ),
                     ]
                 )
                 return
@@ -164,6 +193,13 @@ class KernelBuildWorker(QThread):
             make_base = ["make", "-C", str(source_dir), f"O={build_dir}"]
             self._run_command(make_base + ["olddefconfig"], self.app_dir)
             self._apply_profile(source_dir, build_dir)
+            mok_certificate: Path | None = None
+            if self.options.self_sign_modules:
+                private_key, mok_certificate = ensure_module_signing_key(
+                    workspace / "signing",
+                    self._log,
+                )
+                self._apply_module_signing(source_dir, build_dir, private_key)
             self._run_command(make_base + ["olddefconfig"], self.app_dir)
 
             config = (build_dir / ".config").read_text(encoding="utf-8", errors="replace")
@@ -184,7 +220,28 @@ class KernelBuildWorker(QThread):
 
             self.phase.emit("DEB-Dateien sammeln")
             copied = copy_debs(package_parent, output, before, self._log)
-            self.success.emit([str(path) for path in copied])
+            results = [str(path) for path in copied]
+            if mok_certificate:
+                results.extend(
+                    [
+                        f"MOK-Zertifikat: {mok_certificate}",
+                        "Secure Boot: Zertifikat bei Bedarf mit "
+                        f"'sudo mokutil --import {mok_certificate}' registrieren und beim Neustart bestätigen.",
+                    ]
+                )
+
+            if self.options.install_after_build:
+                packages = installable_kernel_debs(copied)
+                if not packages:
+                    raise BuilderError("Keine installierbaren Kernel-Image-/Header-Pakete gefunden.")
+                self.phase.emit("Kernel und Header installieren")
+                self._run_command(
+                    ["pkexec", "apt-get", "install", "-y", *[str(path) for path in packages]],
+                    output,
+                )
+                results.append("Kernel und Header wurden installiert; der bisherige Kernel bleibt erhalten.")
+
+            self.success.emit(results)
         except Exception as exc:
             self.failed.emit(str(exc))
 

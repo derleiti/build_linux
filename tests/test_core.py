@@ -12,6 +12,7 @@ from ailinux_kernel_builder.core import (
     VerificationResult,
     config_commands,
     extract_source,
+    installable_kernel_debs,
     source_info,
 )
 
@@ -77,6 +78,21 @@ class CoreTests(unittest.TestCase):
             verification = VerificationResult(source, "0" * 64, "0" * 40)
             with self.assertRaises(BuilderError):
                 extract_source(verification, root / "work", lambda _line: None)
+
+    def test_installable_debs_exclude_debug_and_libc_packages(self) -> None:
+        packages = [
+            Path("/tmp/linux-image-7.1.3-ailinux_7.1.3-1_amd64.deb"),
+            Path("/tmp/linux-image-7.1.3-ailinux-dbg_7.1.3-1_amd64.deb"),
+            Path("/tmp/linux-headers-7.1.3-ailinux_7.1.3-1_amd64.deb"),
+            Path("/tmp/linux-libc-dev_7.1.3-1_amd64.deb"),
+        ]
+        self.assertEqual(
+            [path.name for path in installable_kernel_debs(packages)],
+            [
+                "linux-headers-7.1.3-ailinux_7.1.3-1_amd64.deb",
+                "linux-image-7.1.3-ailinux_7.1.3-1_amd64.deb",
+            ],
+        )
 
 
 if __name__ == "__main__":
