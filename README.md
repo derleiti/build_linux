@@ -19,8 +19,11 @@ abgelehnt. Unterstützt werden originale `linux-X.Y.Z.tar`, `.tar.xz`,
 Beim Import stehen drei Prüfmodi zur Wahl:
 
 1. **Vollständig:** SHA-256 gegen kernel.org plus OpenPGP-Release-Signatur.
-2. **Ohne Signatur:** nur SHA-256 gegen kernel.org, etwa wenn für einen
-   Release Candidate keine passende TAR-Signatur verfügbar ist.
+2. **Ohne Signatur:** bei stabilen Releases nur SHA-256 gegen die offizielle
+   kernel.org-Prüfsummenliste. Mainline-Release-Candidates werden stattdessen
+   bytegenau per SHA-256 mit einem frisch geladenen offiziellen
+   `git.kernel.org`-Snapshot verglichen, da kernel.org dafür keine separate
+   TAR-Signatur und keine `sha256sums.asc` veröffentlicht.
 3. **Lokales Archiv:** keine Online-Gegenprüfung; der lokale SHA-256-Wert wird
    lediglich dokumentiert. Dieser Modus verlangt eine ausdrückliche Warnbestätigung.
 
@@ -83,6 +86,15 @@ wget https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-7.1.3.tar.xz
 
 Danach prüft die App das lokale Archiv zwingend gegen die offiziellen
 Prüfsummen und die Entwickler-Signatur.
+
+Mainline-Release-Candidates werden auf kernel.org aus dem Git-Tree angeboten:
+
+```bash
+wget https://git.kernel.org/torvalds/t/linux-7.2-rc4.tar.gz
+```
+
+Für einen RC bietet die GUI beim Start aus dem vollständigen Prüfmodus heraus
+den offiziellen Online-Snapshot-Vergleich ohne TAR-Signatur an.
 
 ## Ausgabe und Arbeitsdaten
 

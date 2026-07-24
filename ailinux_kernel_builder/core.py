@@ -15,6 +15,7 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import BinaryIO, Callable, Iterable
+from urllib.parse import urlparse
 
 
 LogFn = Callable[[str], None]
@@ -44,6 +45,8 @@ KERNEL_KEY_EMAILS = (
     "sashal@kernel.org",
     "bwh@kernel.org",
 )
+
+KERNEL_ORG_DOWNLOAD_HOSTS = {"cdn.kernel.org", "git.kernel.org"}
 
 REQUIRED_PACKAGES = (
     "build-essential",
@@ -112,17 +115,28 @@ def source_info(archive: Path) -> SourceInfo:
     major = int(version.split(".", 1)[0])
     if major < 3:
         raise BuilderError("Diese App unterstützt kernel.org-Releases ab Linux 3.x.")
-    subdir = "testing/" if "-rc" in version else ""
-    base_url = f"https://cdn.kernel.org/pub/linux/kernel/v{major}.x/{subdir}"
     stem = f"linux-{version}"
+    if "-rc" in version:
+        # kernel.org links mainline release candidates to a generated snapshot
+        # of Linus Torvalds' Git tree. They are not published in the CDN
+        # release directory with sha256sums.asc and a detached TAR signature.
+        base_url = "https://git.kernel.org/torvalds/t/"
+        archive_url = base_url + archive.name
+        signature_url = ""
+        checksums_url = ""
+    else:
+        base_url = f"https://cdn.kernel.org/pub/linux/kernel/v{major}.x/"
+        archive_url = base_url + archive.name
+        signature_url = base_url + stem + ".tar.sign"
+        checksums_url = base_url + "sha256sums.asc"
     return SourceInfo(
         archive=archive,
         version=version,
         suffix=match.group("suffix"),
         base_url=base_url,
-        archive_url=base_url + archive.name,
-        signature_url=base_url + stem + ".tar.sign",
-        checksums_url=base_url + "sha256sums.asc",
+        archive_url=archive_url,
+        signature_url=signature_url,
+        checksums_url=checksums_url,
     )
 
 
@@ -139,21 +153,59 @@ def sha256_file(path: Path, callback: Callable[[int], None] | None = None) -> st
     return digest.hexdigest()
 
 
-def _download(url: str, destination: Path, log: LogFn) -> None:
-    if not url.startswith("https://cdn.kernel.org/"):
+def _validate_kernel_org_url(url: str) -> None:
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or parsed.hostname not in KERNEL_ORG_DOWNLOAD_HOSTS:
         raise BuilderError(f"Unsichere Download-Adresse abgelehnt: {url}")
-    log(f"Lade Prüfdaten von {url}")
+
+
+def _open_kernel_org_url(url: str):
+    _validate_kernel_org_url(url)
     request = urllib.request.Request(url, headers={"User-Agent": "AILinux-Kernel-Builder/1.0"})
+    response = urllib.request.urlopen(request, timeout=60)
     try:
-        with urllib.request.urlopen(request, timeout=30) as response, destination.open("wb") as out:
-            if response.geturl().split("/", 3)[:3] != ["https:", "", "cdn.kernel.org"]:
-                raise BuilderError("kernel.org-Prüfdatei wurde auf einen fremden Host umgeleitet.")
+        _validate_kernel_org_url(response.geturl())
+    except Exception:
+        response.close()
+        raise
+    return response
+
+
+def _download(url: str, destination: Path, log: LogFn) -> None:
+    log(f"Lade Prüfdaten von {url}")
+    try:
+        with _open_kernel_org_url(url) as response, destination.open("wb") as out:
             shutil.copyfileobj(response, out)
     except Exception as exc:
         destination.unlink(missing_ok=True)
         if isinstance(exc, BuilderError):
             raise
         raise BuilderError(f"Download von kernel.org fehlgeschlagen: {exc}") from exc
+
+
+def _sha256_url(url: str, expected_size: int, log: LogFn) -> str:
+    log(f"Vergleiche mit offiziellem Mainline-Snapshot von {url}")
+    digest = hashlib.sha256()
+    received = 0
+    try:
+        with _open_kernel_org_url(url) as response:
+            while chunk := response.read(4 * 1024 * 1024):
+                received += len(chunk)
+                if received > expected_size:
+                    raise BuilderError(
+                        "Der kernel.org-Snapshot ist größer als das lokale Archiv; "
+                        "der Online-Vergleich wurde abgebrochen."
+                    )
+                digest.update(chunk)
+    except Exception as exc:
+        if isinstance(exc, BuilderError):
+            raise
+        raise BuilderError(f"Download von kernel.org fehlgeschlagen: {exc}") from exc
+    if received != expected_size:
+        raise BuilderError(
+            "Der kernel.org-Snapshot hat eine andere Größe als das lokale Archiv."
+        )
+    return digest.hexdigest()
 
 
 def _manifest_hash(manifest: Path, filename: str) -> str:
@@ -298,6 +350,28 @@ def verify_kernel_org_source(
         log(
             "WARNUNG: Online-Gegenprüfung deaktiviert. "
             "Der lokale SHA-256 wird nur dokumentiert; Herkunft und Echtheit sind nicht bestätigt."
+        )
+        return VerificationResult(source=source, sha256=actual, signer_fingerprint=None)
+
+    if "-rc" in source.version:
+        if mode == VERIFY_FULL:
+            raise BuilderError(
+                "kernel.org veröffentlicht Mainline-Release-Candidates als Git-Snapshot "
+                "ohne separates sha256sums.asc und ohne TAR-Signatur. "
+                "Wähle „Ohne Signatur“ für den bytegenauen Online-Vergleich mit "
+                "git.kernel.org oder bewusst „Lokales Archiv“."
+            )
+        expected = _sha256_url(source.archive_url, source.archive.stat().st_size, log)
+        if actual != expected:
+            raise BuilderError(
+                "SHA-256 stimmt nicht mit dem aktuellen offiziellen Mainline-Snapshot "
+                "auf git.kernel.org überein. Das Archiv ist beschädigt, verändert "
+                "oder kein Original."
+            )
+        log(f"SHA-256 stimmt mit dem offiziellen kernel.org-Snapshot überein: {actual}")
+        log(
+            "WARNUNG: Für diesen Mainline-RC ist keine separate TAR-Signatur verfügbar. "
+            "Die Quelle wurde bytegenau mit dem offiziellen HTTPS-Snapshot verglichen."
         )
         return VerificationResult(source=source, sha256=actual, signer_fingerprint=None)
 

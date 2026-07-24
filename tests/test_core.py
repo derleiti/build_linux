@@ -31,6 +31,26 @@ class CoreTests(unittest.TestCase):
                 "https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-7.1.3.tar.sign",
             )
 
+    def test_source_url_for_mainline_release_candidate(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory) / "linux-7.2-rc4.tar.gz"
+            archive.touch()
+            info = source_info(archive)
+            self.assertEqual(
+                info.archive_url,
+                "https://git.kernel.org/torvalds/t/linux-7.2-rc4.tar.gz",
+            )
+            self.assertEqual(info.signature_url, "")
+            self.assertEqual(info.checksums_url, "")
+
+    def test_full_verification_explains_unsigned_release_candidate(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive = root / "linux-7.2-rc4.tar.gz"
+            archive.write_bytes(b"release candidate")
+            with self.assertRaisesRegex(BuilderError, "Mainline-Release-Candidates"):
+                verify_kernel_org_source(archive, root / "cache")
+
     def test_repacked_name_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             archive = Path(directory) / "my-kernel.zip"

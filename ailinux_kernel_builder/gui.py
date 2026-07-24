@@ -220,12 +220,40 @@ class MainWindow(QMainWindow):
         if archive is None:
             return
         verification_mode = str(self.verification_mode.currentData())
-        if verification_mode == VERIFY_CHECKSUM:
+        source = source_info(archive)
+        rc_comparison_confirmed = False
+        if "-rc" in source.version and verification_mode == VERIFY_FULL:
+            answer = QMessageBox.warning(
+                self,
+                "Release Candidate ohne TAR-Signatur",
+                "kernel.org veröffentlicht diesen Mainline-RC als Git-Snapshot, aber ohne "
+                "separates sha256sums.asc und ohne TAR-Signatur.\n\n"
+                "Soll das lokale Archiv stattdessen bytegenau per SHA-256 mit einem frisch "
+                "geladenen offiziellen git.kernel.org-Snapshot verglichen werden? "
+                "Dabei wird das Archiv erneut aus dem Internet übertragen.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+            verification_mode = VERIFY_CHECKSUM
+            rc_comparison_confirmed = True
+            self.verification_mode.setCurrentIndex(
+                self.verification_mode.findData(VERIFY_CHECKSUM)
+            )
+        if verification_mode == VERIFY_CHECKSUM and not rc_comparison_confirmed:
             answer = QMessageBox.warning(
                 self,
                 "Build ohne Release-Signatur",
-                "Die OpenPGP-Release-Signatur wird nicht geprüft. Das Archiv muss weiterhin exakt "
-                "in der offiziellen kernel.org-SHA-256-Liste stehen.\n\nFortfahren?",
+                (
+                    "Die OpenPGP-Release-Signatur wird nicht geprüft. "
+                    "Der Release Candidate wird bytegenau mit einem frisch geladenen "
+                    "git.kernel.org-Snapshot verglichen."
+                    if "-rc" in source.version
+                    else "Die OpenPGP-Release-Signatur wird nicht geprüft. Das Archiv muss "
+                    "weiterhin exakt in der offiziellen kernel.org-SHA-256-Liste stehen."
+                )
+                + "\n\nFortfahren?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )
