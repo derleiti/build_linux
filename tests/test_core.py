@@ -5,6 +5,7 @@ import tarfile
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from ailinux_kernel_builder.core import (
     BuilderError,
@@ -12,6 +13,7 @@ from ailinux_kernel_builder.core import (
     VERIFY_LOCAL,
     VerificationResult,
     config_commands,
+    ensure_module_signing_key,
     extract_source,
     installable_kernel_debs,
     source_info,
@@ -131,6 +133,34 @@ class CoreTests(unittest.TestCase):
                 "linux-image-7.1.3-ailinux_7.1.3-1_amd64.deb",
             ],
         )
+
+    @mock.patch("ailinux_kernel_builder.core.shutil.which", return_value="/usr/bin/openssl")
+    def test_existing_module_signing_key_is_made_kernel_compatible(
+        self, _which: mock.Mock
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            key_dir = Path(directory)
+            private_key = key_dir / "ailinux-module-signing-key.pem"
+            certificate = key_dir / "ailinux-module-signing-cert.x509"
+            mok_certificate = key_dir / "ailinux-module-signing-cert.der"
+            private_key.write_bytes(b"PRIVATE KEY\n")
+            certificate.write_bytes(b"CERTIFICATE\n")
+            mok_certificate.write_bytes(b"DER")
+            messages: list[str] = []
+
+            returned_key, returned_mok = ensure_module_signing_key(key_dir, messages.append)
+            ensure_module_signing_key(key_dir, messages.append)
+
+            self.assertEqual(returned_key, private_key)
+            self.assertEqual(returned_mok, mok_certificate)
+            self.assertEqual(private_key.read_bytes(), b"PRIVATE KEY\nCERTIFICATE\n")
+            self.assertEqual(private_key.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(
+                messages.count(
+                    "Kernel-Signatur-PEM um das zugehörige X.509-Zertifikat ergänzt."
+                ),
+                1,
+            )
 
 
 if __name__ == "__main__":

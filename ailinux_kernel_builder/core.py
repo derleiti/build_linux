@@ -410,6 +410,7 @@ def ensure_module_signing_key(key_dir: Path, log: LogFn) -> tuple[Path, Path]:
     mok_certificate = key_dir / "ailinux-module-signing-cert.der"
 
     if private_key.is_file() and certificate.is_file() and mok_certificate.is_file():
+        _ensure_kernel_signing_pem(private_key, certificate, log)
         private_key.chmod(0o600)
         log(f"Verwende vorhandenen lokalen Signaturschlüssel: {private_key}")
         return private_key, mok_certificate
@@ -454,9 +455,32 @@ def ensure_module_signing_key(key_dir: Path, log: LogFn) -> tuple[Path, Path]:
     )
     if result.returncode:
         raise BuilderError(f"MOK-Zertifikat konnte nicht erzeugt werden:\n{result.stdout[-1500:]}")
+    _ensure_kernel_signing_pem(private_key, certificate, log)
     certificate.chmod(0o644)
     mok_certificate.chmod(0o644)
     return private_key, mok_certificate
+
+
+def _ensure_kernel_signing_pem(private_key: Path, certificate: Path, log: LogFn) -> None:
+    """Keep the private key and its X.509 certificate in the PEM used by Kbuild."""
+    key_data = private_key.read_bytes()
+    certificate_data = certificate.read_bytes().strip()
+    if not certificate_data:
+        raise BuilderError(f"Leeres Modul-Signaturzertifikat: {certificate}")
+    if certificate_data in key_data:
+        return
+
+    # certs/extract-cert reads CONFIG_MODULE_SIG_KEY and therefore needs the
+    # certificate next to the private key in the same PEM file.
+    combined = key_data.rstrip() + b"\n" + certificate_data + b"\n"
+    temporary = private_key.with_name(private_key.name + ".tmp")
+    try:
+        temporary.write_bytes(combined)
+        temporary.chmod(0o600)
+        os.replace(temporary, private_key)
+    finally:
+        temporary.unlink(missing_ok=True)
+    log("Kernel-Signatur-PEM um das zugehörige X.509-Zertifikat ergänzt.")
 
 
 def installable_kernel_debs(debs: Iterable[Path]) -> list[Path]:
