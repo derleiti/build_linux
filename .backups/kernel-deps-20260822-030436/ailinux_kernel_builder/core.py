@@ -48,25 +48,15 @@ KERNEL_KEY_EMAILS = (
 
 KERNEL_ORG_DOWNLOAD_HOSTS = {"cdn.kernel.org", "git.kernel.org"}
 
-# Debian/Ubuntu packages required for the complete workflow used by this app:
-# kernel compilation from a distribution config, BTF generation, module signing,
-# compression and bindeb-pkg packaging. Keep this list conservative so a build
-# fails during preflight rather than after hours of compilation.
 REQUIRED_PACKAGES = (
     "build-essential",
     "bc",
-    "binutils",
     "bison",
     "flex",
     "libssl-dev",
     "libelf-dev",
-    "libdw-dev",
     "libncurses-dev",
-    "zlib1g-dev",
     "dwarves",
-    "pahole",
-    "pkg-config",
-    "perl-base",
     "rsync",
     "fakeroot",
     "dpkg-dev",
@@ -74,11 +64,6 @@ REQUIRED_PACKAGES = (
     "cpio",
     "kmod",
     "openssl",
-    "gnupg",
-    "xz-utils",
-    "bzip2",
-    "gzip",
-    "zstd",
 )
 
 

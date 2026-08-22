@@ -60,7 +60,6 @@ REQUIRED_PACKAGES = (
     "flex",
     "libssl-dev",
     "libelf-dev",
-    "libdw-dev",
     "libncurses-dev",
     "zlib1g-dev",
     "dwarves",

@@ -3,6 +3,6 @@ PyQt6>=6.7,<7
 
 # System dependencies are installed by AILinux Kernel Builder through apt/pkexec.
 # Debian/Ubuntu packages (kept in sync with ailinux_kernel_builder.core.REQUIRED_PACKAGES):
-# build-essential bc binutils bison flex libssl-dev libelf-dev libdw-dev libncurses-dev
+# build-essential bc binutils bison flex libssl-dev libelf-dev libncurses-dev
 # zlib1g-dev dwarves pahole pkg-config perl-base rsync fakeroot dpkg-dev debhelper
 # cpio kmod openssl gnupg xz-utils bzip2 gzip zstd

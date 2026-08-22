@@ -182,9 +182,9 @@ class KernelBuildWorker(QThread):
                         "Fehlende Build-Abhängigkeiten und pkexec ist nicht verfügbar: "
                         + ", ".join(missing)
                     )
-                self._run_command(["pkexec", "/usr/bin/apt-get", "update"], self.app_dir)
+                self._run_command(["pkexec", "apt-get", "update"], self.app_dir)
                 self._run_command(
-                    ["pkexec", "/usr/bin/apt-get", "install", "-y", *missing],
+                    ["pkexec", "apt-get", "install", "-y", *missing],
                     self.app_dir,
                 )
                 left = missing_packages()
@@ -258,7 +258,7 @@ class KernelBuildWorker(QThread):
                     raise BuilderError("Keine installierbaren Kernel-Image-/Header-Pakete gefunden.")
                 self.phase.emit("Kernel und Header installieren")
                 self._run_command(
-                    ["pkexec", "/usr/bin/apt-get", "install", "-y", *[str(path) for path in packages]],
+                    ["pkexec", "apt-get", "install", "-y", *[str(path) for path in packages]],
                     output,
                 )
                 results.append("Kernel und Header wurden installiert; der bisherige Kernel bleibt erhalten.")
@@ -279,7 +279,7 @@ class DependencyInstallWorker(QThread):
             if not missing:
                 self.success.emit(["Alle Build-Abhängigkeiten sind installiert."])
                 return
-            command = ["pkexec", "/usr/bin/apt-get", "install", "-y", *missing]
+            command = ["pkexec", "apt-get", "install", "-y", *missing]
             process = subprocess.run(
                 command,
                 text=True,
