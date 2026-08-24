@@ -1,5 +1,5 @@
 # Python runtime dependency
-PyQt6>=6.7,<7
+PyQt6>=6.11.0,<7
 
 # System dependencies are installed by AILinux Kernel Builder through apt/pkexec.
 # Debian/Ubuntu packages (kept in sync with ailinux_kernel_builder.core.REQUIRED_PACKAGES):
