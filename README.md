@@ -1,52 +1,19 @@
 # AILinux Kernel Builder
 
-PyQt6-App zum verifizierten Bau eines AI-/Gaming-/Low-Latency-Kernels als
-Debian-Pakete. Die Installation bleibt standardmäßig deaktiviert und kann nach
-dem Build ausdrücklich zugeschaltet werden.
+[![CI](https://github.com/derleiti/build_linux/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/derleiti/build_linux/actions/workflows/ci.yml)
+[![Security](https://github.com/derleiti/build_linux/actions/workflows/security.yml/badge.svg?branch=main)](https://github.com/derleiti/build_linux/actions/workflows/security.yml)
 
-## Sicherheitsmodell und optionale Signaturmodi
+**Current release tag: v1.0.3**. PyQt6 builder for verified AI/gaming/low-latency Linux kernel Debian packages.
 
-Standardmäßig müssen vor jedem Build beide Prüfungen erfolgreich sein:
+## Verification modes
 
-1. SHA-256 stimmt mit `sha256sums.asc` auf `cdn.kernel.org` überein.
-2. Die Signatur `linux-X.Y.Z.tar.sign` ist gültig und stammt von einem der auf
-   kernel.org veröffentlichten Release-Schlüssel.
+1. **Full verification** — SHA-256 against kernel.org plus official release signature.
+2. **Checksum/snapshot verification** — stable releases use official SHA-256 lists; release candidates can be byte-compared with the official git.kernel.org snapshot.
+3. **Local archive mode** — intentionally unverified origin; the application records the local hash and requires explicit user acknowledgement.
 
-Darum werden umbenannte, veränderte oder neu als ZIP gepackte Quellen bewusst
-abgelehnt. Unterstützt werden originale `linux-X.Y.Z.tar`, `.tar.xz`,
-`.tar.gz`, `.tar.bz2` und mit Python 3.14 auch `.tar.zst`.
+The expected archive layout remains `linux-X.Y.Z[-rcN]`. Module self-signing is optional and does not replace upstream source verification.
 
-Beim Import stehen drei Prüfmodi zur Wahl:
-
-1. **Vollständig:** SHA-256 gegen kernel.org plus OpenPGP-Release-Signatur.
-2. **Ohne Signatur:** bei stabilen Releases nur SHA-256 gegen die offizielle
-   kernel.org-Prüfsummenliste. Mainline-Release-Candidates werden stattdessen
-   bytegenau per SHA-256 mit einem frisch geladenen offiziellen
-   `git.kernel.org`-Snapshot verglichen, da kernel.org dafür keine separate
-   TAR-Signatur und keine `sha256sums.asc` veröffentlicht.
-3. **Lokales Archiv:** keine Online-Gegenprüfung; der lokale SHA-256-Wert wird
-   lediglich dokumentiert. Dieser Modus verlangt eine ausdrückliche Warnbestätigung.
-
-Der Dateiname und die Archivstruktur müssen in allen Modi weiterhin dem
-kernel.org-Schema `linux-X.Y.Z[-rcN]` entsprechen. Self-Signing bestätigt nur
-die daraus gebauten Module und ist kein nachträglicher Herkunftsnachweis für
-ungeprüfte Quellen.
-
-Optional erzeugt die App unter `.ailinux-kernel-work/signing/` einen
-persistenten lokalen RSA-4096-Schlüssel und signiert damit alle gebauten
-Kernelmodule. Der private Schlüssel erhält Modus `0600` und wird bei späteren
-Builds wiederverwendet. Für Secure Boot muss das ausgegebene DER-Zertifikat
-einmalig als Machine Owner Key registriert und beim folgenden Neustart bestätigt
-werden:
-
-```bash
-sudo mokutil --import .ailinux-kernel-work/signing/ailinux-module-signing-cert.der
-```
-
-Diese Option signiert Kernelmodule; sie ersetzt keine distributionsseitige
-Microsoft-/Ubuntu-Signatur des Kernel-Images.
-
-## Start
+## Run
 
 ```bash
 python3 -m venv .venv
@@ -54,84 +21,21 @@ python3 -m venv .venv
 ./build_ailinux_kernel.sh
 ```
 
-## Linux-Binary bauen
-
-Das Buildskript erstellt mit PyInstaller eine eigenständige GUI-Binary. Python-
-Pakete und PyInstaller werden dabei isoliert unter `.build-venv/` installiert:
+## Build standalone Linux binary
 
 ```bash
 ./build_linux_binary.sh
 ```
 
-Das Ergebnis liegt unter `dist/ailinux-kernel-builder`. Die Arbeitsdaten und
-gebauten Debian-Pakete werden beim Start neben der Binary in
-`.ailinux-kernel-work/` beziehungsweise `output/` abgelegt.
+Built Debian packages and workspace data are kept under the application's output/work directories. Kernel source archives are intentionally not stored in Git; download them from kernel.org.
 
-Die Binary gilt für die Architektur, auf der sie gebaut wurde. Für möglichst
-breite Kompatibilität sollte sie auf der ältesten unterstützten Linux-
-Distribution gebaut werden.
+## Security notes
 
-Das vorhandene `linux-7.1.3.tar.xz` wird beim ersten Start automatisch
-vorausgewählt. GnuPG lädt die offiziellen Maintainer-Schlüssel über das
-kernel.org Web Key Directory in einen isolierten Schlüsselring unter
-`.ailinux-kernel-work/verification/gnupg`.
+- installation of the built kernel remains an explicit operation
+- persistent module-signing private keys use restricted file permissions
+- source archive extraction and verification are fail-closed
+- release-candidate handling documents the weaker/different upstream verification path rather than pretending a signature exists
 
-Kernel-Quellarchive werden wegen ihrer Größe nicht im Git-Repository
-gespeichert. Ein Release muss direkt von kernel.org geladen werden, zum
-Beispiel:
+## License
 
-```bash
-wget https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-7.1.3.tar.xz
-```
-
-Danach prüft die App das lokale Archiv zwingend gegen die offiziellen
-Prüfsummen und die Entwickler-Signatur.
-
-Mainline-Release-Candidates werden auf kernel.org aus dem Git-Tree angeboten:
-
-```bash
-wget https://git.kernel.org/torvalds/t/linux-7.2-rc4.tar.gz
-```
-
-Für einen RC bietet die GUI beim Start aus dem vollständigen Prüfmodus heraus
-den offiziellen Online-Snapshot-Vergleich ohne TAR-Signatur an.
-
-## Ausgabe und Arbeitsdaten
-
-- Quellen und Objektdateien: `.ailinux-kernel-work/`
-- fertige Pakete: `output/*.deb`
-- Prüfsummen der Pakete: `output/SHA256SUMS`
-
-Der Build nutzt die Config des laufenden Kernels, migriert sie mit
-`olddefconfig` und setzt anschließend das AILinux-Profil:
-
-- vollständige Preemption, dynamische Preemption und 1000 Hz
-- Scheduler-Autogrouping, Utilization Clamping und RCU Boost
-- Performance- oder Schedutil-Governor
-- THP `madvise`, HugeTLB, Zswap/Zstd
-- BFQ, io_uring, TCP BBR/FQ
-- Performance-Kompilierung, Zstd-Kernel/Module, keine Debug-Info
-- IOMMU und DRM-Accelerator-Infrastruktur für AI-Workloads
-
-Die Quellen werden nach jeder erfolgreichen Originalprüfung frisch entpackt.
-Ein alter oder nachträglich veränderter Quellbaum wird nie wiederverwendet;
-lediglich der getrennte Objektordner kann inkrementell weitergebaut werden.
-
-`-mtune=native` ist optional. Es optimiert das Scheduling der erzeugten
-Maschinencodes für den Build-Rechner, ohne per `-march=native` zusätzliche
-CPU-Befehlssätze zu erzwingen.
-
-Mit der GUI-Option „Kernel und Header nach dem Build installieren“ werden nur
-das Runtime-Image und die passenden Header über `pkexec apt-get` installiert.
-Debug- und `linux-libc-dev`-Pakete bleiben außen vor. Der bisherige Kernel wird
-nicht entfernt und bleibt als Rückfalloption erhalten.
-
-Alternativ erfolgt die Installation nach erfolgreichem Build manuell:
-
-```bash
-cd output
-sudo apt install ./linux-image-*-ailinux_*.deb ./linux-headers-*-ailinux_*.deb
-```
-
-Vor der Installation sollte ausreichend freier Platz in `/boot` vorhanden
-sein. Der bisherige Kernel bleibt als Rückfalloption installiert.
+AILinux-authored Kernel Builder code is covered by the AILinux Proprietary Source License. Linux kernel sources and all third-party dependencies remain under their respective upstream licenses.
