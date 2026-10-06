@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import os
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from PyQt6.QtCore import QSettings, QUrl
+from PyQt6.QtCore import QSettings, QTimer, QUrl
 from PyQt6.QtGui import QDesktopServices, QFont
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
     QFileDialog,
+    QDialog,
     QFormLayout,
     QFrame,
     QHBoxLayout,
@@ -146,10 +148,13 @@ class MainWindow(QMainWindow):
         self.cancel_button.clicked.connect(self._cancel)
         self.output_button = QPushButton("Ausgabe öffnen")
         self.output_button.clicked.connect(self._open_output)
+        self.report_button = QPushButton("Problem melden…")
+        self.report_button.clicked.connect(self._report_bug)
         action_row.addWidget(self.verify_button)
         action_row.addWidget(self.build_button)
         action_row.addWidget(self.cancel_button)
         action_row.addStretch(1)
+        action_row.addWidget(self.report_button)
         action_row.addWidget(self.output_button)
         layout.addLayout(action_row)
 
@@ -364,6 +369,32 @@ class MainWindow(QMainWindow):
             self.dep_label.setText("Build-Abhängigkeiten vollständig")
             self.dep_button.setEnabled(False)
 
+    def _report_bug(self) -> None:
+        from .bug_reporter import submit_manual
+        dialog = QDialog(self)
+        dialog.setWindowTitle("AILinux Kernel Builder · Problem melden")
+        dialog.setMinimumWidth(600)
+        layout = QVBoxLayout(dialog)
+        privacy = QLabel("Redigierte Kernel-Builder-Diagnosen werden an bugs@ailinux.me gesendet. Kernel-Quellarchive, Build-Artefakte, private Schlüssel, Dateiinhalte, Tokens und Passwörter werden nicht angehängt.")
+        privacy.setWordWrap(True); layout.addWidget(privacy)
+        message = QPlainTextEdit(dialog); message.setPlaceholderText("Was ist passiert? Was hast du direkt davor gemacht? (optional)"); layout.addWidget(message)
+        submit = QPushButton("Submit diagnostics", dialog); state = QLabel("", dialog); layout.addWidget(submit); layout.addWidget(state)
+        pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="kernel-builder-bug-report")
+        timer = QTimer(dialog); timer.setInterval(120); future = {"value": None}
+        def do_submit():
+            submit.setEnabled(False); state.setText("Wird gesendet…"); future["value"] = pool.submit(submit_manual, message.toPlainText()); timer.start()
+        def poll():
+            job = future.get("value")
+            if job is None or not job.done(): return
+            timer.stop(); submit.setEnabled(True)
+            try:
+                result = job.result()
+                if result.get("ok"): state.setText("Report gesendet."); message.clear()
+                elif result.get("queued"): state.setText("Offline/Server nicht erreichbar – Report wurde für Retry gespeichert.")
+                else: state.setText("Report konnte nicht gesendet werden.")
+            except Exception as exc: state.setText(f"Reportfehler: {exc}")
+        submit.clicked.connect(do_submit); timer.timeout.connect(poll); dialog.finished.connect(lambda _code: pool.shutdown(wait=False, cancel_futures=True)); dialog.exec()
+
     def _open_output(self) -> None:
         output = self.app_dir / "output"
         output.mkdir(exist_ok=True)
@@ -378,6 +409,9 @@ class MainWindow(QMainWindow):
 
 
 def run(app_dir: Path) -> int:
+    from . import __version__
+    from .bug_reporter import install as install_bug_reporter
+    install_bug_reporter(app="AILinux Kernel Builder", repo="build_linux", version=__version__, channel="desktop")
     application = QApplication([])
     application.setApplicationName("AILinux Kernel Builder")
     application.setOrganizationName("AILinux")

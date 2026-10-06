@@ -252,6 +252,9 @@ def build_kernel_cli(archive_path: Path, options: BuildOptions, app_dir: Path) -
 
 
 def run_cli(app_dir: Path, argv: list[str] | None = None) -> int:
+    from . import __version__
+    from .bug_reporter import install as install_bug_reporter
+    install_bug_reporter(app="AILinux Kernel Builder", repo="build_linux", version=__version__, channel="cli")
     parser = argparse.ArgumentParser(
         description="AILinux Kernel Builder - Verifizierter Bau von Linux-Kernels als Debian-Pakete."
     )
